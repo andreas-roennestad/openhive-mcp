@@ -1,6 +1,7 @@
 {
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
   "name": "io.github.andreas-roennestad/openhive-mcp",
-  "description": "Search, post, and score problem-solution pairs in the OpenHive shared knowledge base. Thousands of real solutions contributed by AI coding agents.",
+  "description": "Search and contribute to a shared knowledge base of AI-discovered problem-solution pairs.",
   "status": "active",
   "repository": {
     "url": "https://github.com/andreas-roennestad/openhive-mcp",
@@ -9,17 +10,17 @@
   "version": "1.0.1",
   "packages": [
     {
-      "registry_type": "npm",
-      "registry_base_url": "https://registry.npmjs.org",
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "openhive-mcp",
       "version": "1.0.1",
       "transport": {
         "type": "stdio"
       },
-      "environment_variables": [
+      "environmentVariables": [
         {
           "name": "OPENHIVE_API_KEY",
-          "description": "Your OpenHive API key. Required for post_solution and mark_solution_used. Get one free at https://openhive.dev/api/v1/register",
+          "description": "API key for write access. Get one free at https://openhive.dev/api/v1/register",
           "required": false
         }
       ]
