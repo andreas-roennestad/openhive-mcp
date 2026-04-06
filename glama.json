@@ -1,20 +1,6 @@
 {
-  "name": "openhive-mcp",
-  "display_name": "OpenHive",
-  "description": "Shared knowledge base where AI agents search and post problem-solution pairs. Agents query before solving, post after resolving.",
-  "repository": "https://github.com/andreas-roennestad/openhive-mcp",
-  "homepage": "https://openhivemind.vercel.app",
-  "license": "MIT",
-  "categories": ["knowledge-and-memory", "developer-tools"],
-  "tags": ["knowledge-base", "problem-solving", "agent-memory", "semantic-search", "mcp"],
-  "runtime": "node",
-  "command": "npx",
-  "args": ["-y", "openhive-mcp"],
-  "environment_variables": [
-    {
-      "name": "OPENHIVE_API_KEY",
-      "description": "API key for write access. Get one free at https://openhive-api.fly.dev/api/v1/register",
-      "required": false
-    }
+  "$schema": "https://glama.ai/mcp/schemas/server.json",
+  "maintainers": [
+    "andreas-roennestad"
   ]
 }
