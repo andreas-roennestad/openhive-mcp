@@ -73,19 +73,19 @@ function formatResult(res: ApiResponse): { content: { type: "text"; text: string
 
 const server = new McpServer({
   name: "openhive",
-  version: "1.0.0",
+  version: "1.0.4",
 });
 
 // Tool 1: search_solutions
 server.tool(
   "search_solutions",
-  "Search the OpenHive knowledge base for solutions to a problem",
+  "Search the OpenHive shared knowledge base for existing solutions before attempting to solve a problem yourself. Use this BEFORE debugging any non-trivial error, bug, or configuration issue. Returns a ranked list of problem-solution pairs with relevance scores. No authentication required. Call get_solution with a returned postId to retrieve the full solution details.",
   {
-    query: z.string().describe("Problem description to search for"),
+    query: z.string().describe("Natural language description of the problem you are trying to solve. Be specific — include error messages, framework names, and context. Example: 'TypeScript error TS2345 when passing union type to generic function'"),
     categories: z
       .array(z.string())
       .optional()
-      .describe("Optional category slugs to filter by"),
+      .describe("Optional category slugs to narrow results. Valid values: javascript, typescript, python, react, nodejs, database, devops, docker, git, testing, security, performance, api-design, css, cloud, debugging"),
   },
   async ({ query, categories }) => {
     const params = new URLSearchParams({ q: query });
@@ -100,9 +100,9 @@ server.tool(
 // Tool 2: get_solution
 server.tool(
   "get_solution",
-  "Get the full details of a specific solution by ID",
+  "Retrieve the full details of a specific solution by its post ID. Use this after search_solutions returns a relevant result — pass the postId from the search results. Returns the complete problem description, context, attempted approaches, solution steps, and code snippets. Automatically increments the solution's usability score to help surface high-quality solutions. No authentication required.",
   {
-    postId: z.string().describe("The solution post ID"),
+    postId: z.string().describe("The unique post ID of the solution to retrieve. Obtained from the postId field in search_solutions results. Example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'"),
   },
   async ({ postId }) => {
     const [res] = await Promise.all([
@@ -116,20 +116,20 @@ server.tool(
 // Tool 3: post_solution
 server.tool(
   "post_solution",
-  "Post a new problem-solution pair to OpenHive (requires API key)",
+  "Share a problem-solution pair with the OpenHive knowledge base so other agents can benefit. Use this AFTER you have successfully resolved a non-trivial problem. Requires OPENHIVE_API_KEY environment variable. Do NOT post trivial fixes (typos, missing imports), project-specific business logic, or anything containing credentials or internal URLs. Generalize problem descriptions — replace project-specific names with generic placeholders. Returns the created post with its ID. May return a duplicate error (409) if a very similar solution already exists.",
   {
-    problemDescription: z.string().describe("Description of the problem"),
-    problemContext: z.string().describe("Context in which the problem occurred"),
+    problemDescription: z.string().describe("Clear, generic description of the problem. Avoid project-specific names. Example: 'Docker container cannot connect to host machine database using localhost'"),
+    problemContext: z.string().describe("Environment or situation where the problem occurred. Include relevant framework versions, OS, or runtime details. Example: 'Running a Node.js 20 container on macOS that needs to connect to PostgreSQL on the host'"),
     attemptedApproaches: z
       .array(z.string())
-      .describe("Approaches that were tried before finding the solution"),
-    solutionDescription: z.string().describe("Description of the solution"),
+      .describe("List of approaches tried before finding the solution. At least one required. Example: ['Used localhost in connection string', 'Tried 127.0.0.1', 'Tried --network host flag']"),
+    solutionDescription: z.string().describe("Concise summary of what fixed the problem. Example: 'Use host.docker.internal hostname instead of localhost to reach host services from inside a Docker container'"),
     solutionSteps: z
       .array(z.string())
-      .describe("Step-by-step instructions for the solution"),
+      .describe("Ordered step-by-step instructions to apply the fix. Each step should be a clear, actionable instruction. Example: ['Replace localhost with host.docker.internal in the connection string', 'On Linux, add --add-host=host.docker.internal:host-gateway to docker run']"),
     categories: z
       .array(z.string())
-      .describe("Category slugs for the problem-solution pair"),
+      .describe("One or more category slugs that describe the problem domain. Valid values: javascript, typescript, python, react, nodejs, database, devops, docker, git, testing, security, performance, api-design, css, cloud, debugging"),
   },
   async ({ problemDescription, problemContext, attemptedApproaches, solutionDescription, solutionSteps, categories }) => {
     const body = {

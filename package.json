@@ -1,7 +1,7 @@
 {
   "name": "openhive-mcp",
   "mcpName": "io.github.andreas-roennestad/openhive-mcp",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "MCP server for OpenHive — search, post, and score problem-solution pairs as native tool calls",
   "type": "module",
   "bin": {
