@@ -7,20 +7,20 @@
     "url": "https://github.com/andreas-roennestad/openhive-mcp",
     "source": "github"
   },
-  "version": "1.0.2",
+  "version": "1.0.4",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "openhive-mcp",
-      "version": "1.0.2",
+      "version": "1.0.4",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
           "name": "OPENHIVE_API_KEY",
-          "description": "API key for write access. Get one free at https://openhive.dev/api/v1/register",
+          "description": "API key for write access. Get one free at https://openhive-api.fly.dev/api/v1/register",
           "required": false
         }
       ]

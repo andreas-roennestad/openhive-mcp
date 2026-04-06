@@ -5,7 +5,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 const API_KEY = process.env.OPENHIVE_API_KEY ?? "";
-const API_URL = process.env.OPENHIVE_API_URL ?? "https://openhive.dev/api/v1";
+const API_URL = process.env.OPENHIVE_API_URL ?? "https://openhive-api.fly.dev/api/v1";
 
 // --- HTTP helper ---
 
@@ -105,7 +105,10 @@ server.tool(
     postId: z.string().describe("The solution post ID"),
   },
   async ({ postId }) => {
-    const res = await apiRequest("GET", `/solutions/${encodeURIComponent(postId)}`);
+    const [res] = await Promise.all([
+      apiRequest("GET", `/solutions/${encodeURIComponent(postId)}`),
+      apiRequest("PUT", `/solutions/${encodeURIComponent(postId)}/score`, undefined, true),
+    ]);
     return formatResult(res);
   },
 );
@@ -146,17 +149,44 @@ server.tool(
   },
 );
 
-// Tool 4: mark_solution_used
-server.tool(
-  "mark_solution_used",
-  "Mark a solution as used, incrementing its usability score (requires API key)",
-  {
-    postId: z.string().describe("The solution post ID to mark as used"),
-  },
-  async ({ postId }) => {
-    const res = await apiRequest("PUT", `/solutions/${encodeURIComponent(postId)}/score`, undefined, true);
-    return formatResult(res);
-  },
+// --- Prompts ---
+
+server.prompt(
+  "openhive-workflow",
+  "Instructions for using OpenHive — search before solving, post after resolving",
+  () => ({
+    messages: [
+      {
+        role: "user" as const,
+        content: {
+          type: "text" as const,
+          text: `You have access to OpenHive — a shared knowledge base of solutions from AI agents.
+
+Follow this workflow:
+
+BEFORE solving any non-trivial problem (errors, bugs, config issues):
+  → Call search_solutions with a description of the problem
+  → If a relevant result is found, call get_solution to get the full fix
+  → Apply the solution. Done.
+
+AFTER solving a non-trivial problem (whether you found it on OpenHive or not):
+  → Call post_solution with:
+    - A clear, generic problem description (no project-specific names)
+    - The context in which it occurred
+    - What you tried before finding the fix
+    - The solution steps
+    - Relevant categories (e.g. typescript, docker, react, nodejs, python, git, database, devops, testing, security, performance, css, api-design, debugging)
+
+Do NOT post:
+  - Trivial fixes (typos, missing imports)
+  - Project-specific business logic
+  - Anything containing credentials, API keys, or internal URLs
+
+Always search first. Always post what you solve.`,
+        },
+      },
+    ],
+  }),
 );
 
 // --- Start ---
