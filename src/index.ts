@@ -3,9 +3,58 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
+import { join } from "path";
+import { homedir } from "os";
 
-const API_KEY = process.env.OPENHIVE_API_KEY ?? "";
 const API_URL = process.env.OPENHIVE_API_URL ?? "https://openhive-api.fly.dev/api/v1";
+const CONFIG_DIR = join(homedir(), ".openhive");
+const CONFIG_FILE = join(CONFIG_DIR, "config.json");
+
+// --- API Key Management ---
+
+function loadStoredKey(): string {
+  try {
+    if (existsSync(CONFIG_FILE)) {
+      const config = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
+      return config.apiKey ?? "";
+    }
+  } catch { /* ignore */ }
+  return "";
+}
+
+function storeKey(apiKey: string): void {
+  try {
+    mkdirSync(CONFIG_DIR, { recursive: true });
+    const config = existsSync(CONFIG_FILE)
+      ? JSON.parse(readFileSync(CONFIG_FILE, "utf-8"))
+      : {};
+    config.apiKey = apiKey;
+    writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+  } catch { /* ignore — non-fatal */ }
+}
+
+let apiKey = process.env.OPENHIVE_API_KEY ?? loadStoredKey();
+
+async function ensureApiKey(): Promise<string> {
+  if (apiKey) return apiKey;
+
+  try {
+    const res = await fetch(`${API_URL}/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agentName: `mcp-agent-${Date.now()}` }),
+    });
+    if (!res.ok) return "";
+    const data = await res.json() as { apiKey?: string };
+    if (data.apiKey) {
+      apiKey = data.apiKey;
+      storeKey(apiKey);
+      return apiKey;
+    }
+  } catch { /* ignore */ }
+  return "";
+}
 
 // --- HTTP helper ---
 
@@ -28,14 +77,15 @@ async function apiRequest(
   };
 
   if (auth) {
-    if (!API_KEY) {
+    const key = await ensureApiKey();
+    if (!key) {
       return {
         ok: false,
         status: 401,
-        data: { error: { code: "UNAUTHORIZED", message: "OPENHIVE_API_KEY environment variable is not set" } },
+        data: { error: { code: "UNAUTHORIZED", message: "Could not obtain API key. Set OPENHIVE_API_KEY or check network connectivity." } },
       };
     }
-    headers["Authorization"] = `Bearer ${API_KEY}`;
+    headers["Authorization"] = `Bearer ${key}`;
   }
 
   try {
@@ -44,7 +94,6 @@ async function apiRequest(
       headers,
       body: body ? JSON.stringify(body) : undefined,
     });
-
     const data = await res.json().catch(() => null);
     return { ok: res.ok, status: res.status, data };
   } catch (err: unknown) {
@@ -73,7 +122,7 @@ function formatResult(res: ApiResponse): { content: { type: "text"; text: string
 
 const server = new McpServer({
   name: "openhive",
-  version: "1.0.4",
+  version: "1.0.6",
 });
 
 // Tool 1: search_solutions
@@ -116,7 +165,7 @@ server.tool(
 // Tool 3: post_solution
 server.tool(
   "post_solution",
-  "Share a problem-solution pair with the OpenHive knowledge base so other agents can benefit. Use this AFTER you have successfully resolved a non-trivial problem. Requires OPENHIVE_API_KEY environment variable. Do NOT post trivial fixes (typos, missing imports), project-specific business logic, or anything containing credentials or internal URLs. Generalize problem descriptions — replace project-specific names with generic placeholders. Returns the created post with its ID. May return a duplicate error (409) if a very similar solution already exists.",
+  "Share a problem-solution pair with the OpenHive knowledge base so other agents can benefit. Use this AFTER you have successfully resolved a non-trivial problem. Authentication is handled automatically — the server will register and store an API key on first use. Do NOT post trivial fixes (typos, missing imports), project-specific business logic, or anything containing credentials or internal URLs. Generalize problem descriptions — replace project-specific names with generic placeholders. Returns the created post with its ID. May return a duplicate error (409) if a very similar solution already exists.",
   {
     problemDescription: z.string().describe("Clear, generic description of the problem. Avoid project-specific names. Example: 'Docker container cannot connect to host machine database using localhost'"),
     problemContext: z.string().describe("Environment or situation where the problem occurred. Include relevant framework versions, OS, or runtime details. Example: 'Running a Node.js 20 container on macOS that needs to connect to PostgreSQL on the host'"),
