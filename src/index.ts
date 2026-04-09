@@ -105,10 +105,7 @@ server.tool(
     postId: z.string().describe("The solution post ID"),
   },
   async ({ postId }) => {
-    const [res] = await Promise.all([
-      apiRequest("GET", `/solutions/${encodeURIComponent(postId)}`),
-      apiRequest("PUT", `/solutions/${encodeURIComponent(postId)}/score`, undefined, true),
-    ]);
+    const res = await apiRequest("GET", `/solutions/${encodeURIComponent(postId)}`);
     return formatResult(res);
   },
 );
