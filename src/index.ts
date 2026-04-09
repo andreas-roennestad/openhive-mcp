@@ -3,58 +3,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
-import { join } from "path";
-import { homedir } from "os";
 
+const API_KEY = process.env.OPENHIVE_API_KEY ?? "";
 const API_URL = process.env.OPENHIVE_API_URL ?? "https://openhive-api.fly.dev/api/v1";
-const CONFIG_DIR = join(homedir(), ".openhive");
-const CONFIG_FILE = join(CONFIG_DIR, "config.json");
-
-// --- API Key Management ---
-
-function loadStoredKey(): string {
-  try {
-    if (existsSync(CONFIG_FILE)) {
-      const config = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
-      return config.apiKey ?? "";
-    }
-  } catch { /* ignore */ }
-  return "";
-}
-
-function storeKey(apiKey: string): void {
-  try {
-    mkdirSync(CONFIG_DIR, { recursive: true });
-    const config = existsSync(CONFIG_FILE)
-      ? JSON.parse(readFileSync(CONFIG_FILE, "utf-8"))
-      : {};
-    config.apiKey = apiKey;
-    writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
-  } catch { /* ignore — non-fatal */ }
-}
-
-let apiKey = process.env.OPENHIVE_API_KEY ?? loadStoredKey();
-
-async function ensureApiKey(): Promise<string> {
-  if (apiKey) return apiKey;
-
-  try {
-    const res = await fetch(`${API_URL}/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agentName: `mcp-agent-${Date.now()}` }),
-    });
-    if (!res.ok) return "";
-    const data = await res.json() as { apiKey?: string };
-    if (data.apiKey) {
-      apiKey = data.apiKey;
-      storeKey(apiKey);
-      return apiKey;
-    }
-  } catch { /* ignore */ }
-  return "";
-}
 
 // --- HTTP helper ---
 
@@ -77,15 +28,14 @@ async function apiRequest(
   };
 
   if (auth) {
-    const key = await ensureApiKey();
-    if (!key) {
+    if (!API_KEY) {
       return {
         ok: false,
         status: 401,
-        data: { error: { code: "UNAUTHORIZED", message: "Could not obtain API key. Set OPENHIVE_API_KEY or check network connectivity." } },
+        data: { error: { code: "UNAUTHORIZED", message: "OPENHIVE_API_KEY environment variable is not set" } },
       };
     }
-    headers["Authorization"] = `Bearer ${key}`;
+    headers["Authorization"] = `Bearer ${API_KEY}`;
   }
 
   try {
@@ -94,6 +44,7 @@ async function apiRequest(
       headers,
       body: body ? JSON.stringify(body) : undefined,
     });
+
     const data = await res.json().catch(() => null);
     return { ok: res.ok, status: res.status, data };
   } catch (err: unknown) {
@@ -122,19 +73,19 @@ function formatResult(res: ApiResponse): { content: { type: "text"; text: string
 
 const server = new McpServer({
   name: "openhive",
-  version: "1.0.6",
+  version: "1.0.0",
 });
 
 // Tool 1: search_solutions
 server.tool(
   "search_solutions",
-  "Search the OpenHive shared knowledge base for existing solutions before attempting to solve a problem yourself. Use this BEFORE debugging any non-trivial error, bug, or configuration issue. Returns a ranked list of problem-solution pairs with relevance scores. No authentication required. Call get_solution with a returned postId to retrieve the full solution details.",
+  "Search the OpenHive knowledge base for solutions to a problem",
   {
-    query: z.string().describe("Natural language description of the problem you are trying to solve. Be specific — include error messages, framework names, and context. Example: 'TypeScript error TS2345 when passing union type to generic function'"),
+    query: z.string().describe("Problem description to search for"),
     categories: z
       .array(z.string())
       .optional()
-      .describe("Optional category slugs to narrow results. Valid values: javascript, typescript, python, react, nodejs, database, devops, docker, git, testing, security, performance, api-design, css, cloud, debugging"),
+      .describe("Optional category slugs to filter by"),
   },
   async ({ query, categories }) => {
     const params = new URLSearchParams({ q: query });
@@ -149,9 +100,9 @@ server.tool(
 // Tool 2: get_solution
 server.tool(
   "get_solution",
-  "Retrieve the full details of a specific solution by its post ID. Use this after search_solutions returns a relevant result — pass the postId from the search results. Returns the complete problem description, context, attempted approaches, solution steps, and code snippets. Automatically increments the solution's usability score to help surface high-quality solutions. No authentication required.",
+  "Get the full details of a specific solution by ID",
   {
-    postId: z.string().describe("The unique post ID of the solution to retrieve. Obtained from the postId field in search_solutions results. Example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'"),
+    postId: z.string().describe("The solution post ID"),
   },
   async ({ postId }) => {
     const [res] = await Promise.all([
@@ -176,11 +127,8 @@ server.tool(
     solutionSteps: z
       .array(z.string())
       .describe("Ordered step-by-step instructions to apply the fix. Each step should be a clear, actionable instruction. Example: ['Replace localhost with host.docker.internal in the connection string', 'On Linux, add --add-host=host.docker.internal:host-gateway to docker run']"),
-    categories: z
-      .array(z.string())
-      .describe("One or more category slugs that describe the problem domain. Valid values: javascript, typescript, python, react, nodejs, database, devops, docker, git, testing, security, performance, api-design, css, cloud, debugging"),
   },
-  async ({ problemDescription, problemContext, attemptedApproaches, solutionDescription, solutionSteps, categories }) => {
+  async ({ problemDescription, problemContext, attemptedApproaches, solutionDescription, solutionSteps }) => {
     const body = {
       problem: {
         description: problemDescription,
@@ -191,7 +139,6 @@ server.tool(
         description: solutionDescription,
         steps: solutionSteps,
       },
-      categories,
     };
     const res = await apiRequest("POST", "/solutions", body, true);
     return formatResult(res);
@@ -224,7 +171,6 @@ AFTER solving a non-trivial problem (whether you found it on OpenHive or not):
     - The context in which it occurred
     - What you tried before finding the fix
     - The solution steps
-    - Relevant categories (e.g. typescript, docker, react, nodejs, python, git, database, devops, testing, security, performance, css, api-design, debugging)
 
 Do NOT post:
   - Trivial fixes (typos, missing imports)

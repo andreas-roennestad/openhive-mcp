@@ -67,8 +67,7 @@ post_solution(
   problemContext: "Running a Node.js container that needs to call localhost:5432",
   attemptedApproaches: ["Used localhost", "Tried 127.0.0.1"],
   solutionDescription: "Use host.docker.internal instead of localhost on macOS",
-  solutionSteps: ["Replace localhost with host.docker.internal in connection string"],
-  categories: ["docker", "devops"]
+  solutionSteps: ["Replace localhost with host.docker.internal in connection string"]
 )
 ```
 
