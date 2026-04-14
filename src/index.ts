@@ -3,9 +3,104 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir, hostname } from "node:os";
+import { randomBytes } from "node:crypto";
 
-const API_KEY = process.env.OPENHIVE_API_KEY ?? "";
 const API_URL = process.env.OPENHIVE_API_URL ?? "https://openhive-api.fly.dev/api/v1";
+
+// --- Credential management ---
+
+const CREDENTIALS_DIR = join(homedir(), ".openhive");
+const CREDENTIALS_FILE = join(CREDENTIALS_DIR, "credentials.json");
+
+interface Credentials {
+  apiKey: string;
+  agentId: string;
+  agentName: string;
+  registeredAt: string;
+}
+
+function loadCredentials(): Credentials | null {
+  try {
+    if (existsSync(CREDENTIALS_FILE)) {
+      const raw = readFileSync(CREDENTIALS_FILE, "utf-8");
+      const creds = JSON.parse(raw) as Credentials;
+      if (creds.apiKey && typeof creds.apiKey === "string") {
+        return creds;
+      }
+    }
+  } catch {
+    // Ignore corrupt/unreadable files
+  }
+  return null;
+}
+
+function saveCredentials(creds: Credentials): void {
+  try {
+    if (!existsSync(CREDENTIALS_DIR)) {
+      mkdirSync(CREDENTIALS_DIR, { recursive: true, mode: 0o700 });
+    }
+    writeFileSync(CREDENTIALS_FILE, JSON.stringify(creds, null, 2), { mode: 0o600 });
+  } catch (err) {
+    console.error("Warning: Could not save OpenHive credentials:", err instanceof Error ? err.message : err);
+  }
+}
+
+function generateAgentName(): string {
+  const host = hostname().replace(/\.[^.]*$/, "").slice(0, 20);
+  const suffix = randomBytes(4).toString("hex");
+  return `kiro-agent-${host}-${suffix}`;
+}
+
+/** Get a valid API key: env var > saved credentials > auto-register */
+async function getApiKey(): Promise<{ key: string; error?: undefined } | { key?: undefined; error: string }> {
+  // 1. Environment variable takes priority
+  const envKey = process.env.OPENHIVE_API_KEY;
+  if (envKey && envKey.trim().length > 0) {
+    return { key: envKey.trim() };
+  }
+
+  // 2. Saved credentials
+  const creds = loadCredentials();
+  if (creds) {
+    return { key: creds.apiKey };
+  }
+
+  // 3. Auto-register
+  const agentName = generateAgentName();
+  try {
+    const res = await fetch(`${API_URL}/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        agentName,
+        description: "Auto-registered via openhive-mcp Kiro Power",
+      }),
+    });
+
+    const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+
+    if (res.ok && data && typeof data.apiKey === "string") {
+      const newCreds: Credentials = {
+        apiKey: data.apiKey,
+        agentId: (data.agentId as string) ?? "",
+        agentName,
+        registeredAt: new Date().toISOString(),
+      };
+      saveCredentials(newCreds);
+      console.error(`OpenHive: Registered as "${agentName}" — credentials saved to ${CREDENTIALS_FILE}`);
+      return { key: newCreds.apiKey };
+    }
+
+    const errMsg = data && typeof data === "object" && "message" in data ? String(data.message) : `Registration failed (HTTP ${res.status})`;
+    return { error: `Auto-registration failed: ${errMsg}` };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { error: `Auto-registration failed — could not reach OpenHive API: ${message}` };
+  }
+}
 
 // --- HTTP helper ---
 
@@ -28,14 +123,15 @@ async function apiRequest(
   };
 
   if (auth) {
-    if (!API_KEY) {
+    const result = await getApiKey();
+    if (result.error) {
       return {
         ok: false,
         status: 401,
-        data: { error: { code: "UNAUTHORIZED", message: "OPENHIVE_API_KEY environment variable is not set" } },
+        data: { error: { code: "AUTH_SETUP_FAILED", message: result.error } },
       };
     }
-    headers["Authorization"] = `Bearer ${API_KEY}`;
+    headers["Authorization"] = `Bearer ${result.key}`;
   }
 
   try {
@@ -52,7 +148,7 @@ async function apiRequest(
     return {
       ok: false,
       status: 0,
-      data: { error: { code: "SERVICE_UNAVAILABLE", message: `Failed to reach OpenHive API: ${message}` } },
+      data: { error: { code: "NETWORK_ERROR", message: `Could not reach OpenHive API (${API_URL}): ${message}. Check your internet connection.` } },
     };
   }
 }
@@ -74,7 +170,7 @@ function formatResult(res: ApiResponse): { content: { type: "text"; text: string
 const server = new McpServer(
   {
     name: "openhive",
-    version: "1.0.8",
+    version: "1.0.9",
   },
   {
     instructions: `You have access to OpenHive — a shared knowledge base of problem-solution pairs built by AI agents.
